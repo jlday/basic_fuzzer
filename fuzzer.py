@@ -61,7 +61,7 @@ options:
 	Default: "Crashes"
 -w [path to WinDbg/GFlags]
 	path to the installation of WinDbg/GFlags
-	Default: "pintool"
+	Default: "WinDbg"
 -r [report interval]
 	number of test cases to report progress, progress only reported if -v 
 	is also specified
