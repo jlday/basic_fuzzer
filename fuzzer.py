@@ -7,6 +7,7 @@
 # 		- psutil python library (http://code.google.com/p/psutil/) 
 # 		- WinDbg (http://msdn.microsoft.com/en-us/windows/hardware/gg463009.aspx)
 # 		- GFlags (http://msdn.microsoft.com/en-us/windows/hardware/gg463009.aspx)
+# 		- Radamsa (http://code.google.com/p/ouspg/wiki/Radamsa)
 # 		- window_killer python library
 ####################################################################################
 # Additional Installation Notes:
@@ -62,7 +63,16 @@ options:
 -w [path to WinDbg/GFlags]
 	path to the installation of WinDbg/GFlags
 	Default: "WinDbg"
--r [report interval]
+-p [path to Radamsa executable] 
+	path to the radamsa executable that will be used to mutate files
+	Default: "radamsa-0.3.exe"
+-t [path to test file directory]
+	path where test files are stored.  Each iteration of the fuzzer
+	will create two copies of the fuzzed file, one to store in the output
+	directory and one to test.  This avoids any changes to the test file 
+	during testing that may be caused by auto save and sanitize features 
+	in the target program.  This file is always deleted after every test.
+-i [report interval]
 	number of test cases to report progress, progress only reported if -v 
 	is also specified
 	Default: 1000
@@ -75,6 +85,8 @@ options:
 -c [cpu sample time]
 	time delay used when calculating the CPU usage percentage.
 	Default: 0.5
+-r 
+	Enable mutations using the Radamsa test case generator.
 -j 
 	JIT Debugger Mode.  This will not spawn a debugger attached to the 
 	target process on each test case.  Instead it will set WinDbg to 
@@ -102,12 +114,15 @@ baseFiles = []
 baseDir = "BaseFiles"
 outputDir = "Crashes"
 WinDbgPath = "WinDbg"
+TestDir = "Tests"
 crashTxt = "crashDetector.txt"
+radamsaPath = "radamsa-0.3.exe"
 reportEvery = 1000
 cpu_usage_sample = 0.5
 max_time = 10
 MutationRate = 0.05
 target = None
+radamsa = False
 jitDebugging = False
 useGflags = True
 kill_windows = False
@@ -223,6 +238,13 @@ def RunTest(file):
 		if os.path.exists(crashTxt):
 			os.remove(crashTxt)
 		
+		if not os.path.exists(TestDir):
+			os.mkdir(TestDir)
+			
+		outputFile = file
+		file = TestDir + os.sep + outputFile[outputFile.rfind(os.sep) + 1:]
+		shutil.copy(outputFile, file)
+		
 		if jitDebugging:
 			try:
 				proc = psutil.Process(subprocess.Popen("\"" + target + "\" \"" + file + "\"").pid)
@@ -243,6 +265,7 @@ def RunTest(file):
 						pass
 					time.sleep(1)
 					os.remove(file)
+					os.remove(outputFile)
 				else:
 					if verbose:
 						print "Crash Detected!!" 
@@ -252,6 +275,7 @@ def RunTest(file):
 					if proc != None and proc.status != psutil.STATUS_DEAD:
 						proc.kill()
 					os.remove(file)
+					os.remove(outputFile)
 				except:
 					pass
 				if windowKiller != None:
@@ -262,6 +286,7 @@ def RunTest(file):
 					if proc != None and proc.status != psutil.STATUS_DEAD:
 						proc.kill()
 					os.remove(file)
+					os.remove(outputFile)
 				except:
 					pass
 		else:
@@ -298,6 +323,7 @@ def RunTest(file):
 					if debugger != None and debugger.status != psutil.STATUS_DEAD:
 						debugger.kill()
 					os.remove(file)
+					os.remove(outputFile)
 				except:
 					pass
 				if windowKiller != None:
@@ -312,12 +338,23 @@ def RunTest(file):
 				os.remove(crashTxt)
 			else:
 				os.remove(file)
+				os.remove(outputFile)
 	except KeyboardInterrupt:
 		if windowKiller != None:
 			windowKiller.start_halt()
+		while os.path.exists(file):
+			try:
+				os.remove(file)
+			except:
+				pass
 		raise KeyboardInterrupt()
 	except:
 		pass
+	while os.path.exists(file):
+		try:
+			os.remove(file)
+		except:
+			pass
 	if windowKiller != None:
 		windowKiller.start_halt()
 		
@@ -325,8 +362,12 @@ def RunTest(file):
 # Responsable for enabling and disabling GFlags and WinDbg as JIT debugger
 def RunFuzzer():	
 	global baseFiles
+	global outputDir
+	global TestDir
 	global reportEvery
 	global useGflags
+	global radamsaPath
+	global radamsa
 	global verbose
 	
 	testFile = None
@@ -351,7 +392,10 @@ def RunFuzzer():
 			testFile = outputDir + os.sep + file[file.rfind("\\") + 1:file.rfind(".")] + ("-0x%0.8X" % random.randint(0, 0xFFFFFFFF)) + file[file.rfind("."):]
 			while testFile == None or os.path.exists(testFile):
 				testFile = outputDir + os.sep + file[file.rfind("\\") + 1:file.rfind(".")] + ("-0x%0.8X" % random.randint(0, 0xFFFFFFFF)) + file[file.rfind("."):]
-			open(testFile, "wb").write(mutate(open(file, "rb").read()))
+			if radamsa:
+				subprocess.call(radamsaPath + " -o " + testFile + " " + file)
+			else:
+				open(testFile, "wb").write(mutate(open(file, "rb").read()))
 			RunTest(testFile)
 			count += 1
 	except KeyboardInterrupt:
@@ -371,11 +415,14 @@ def main(args):
 	global baseDir
 	global outputDir
 	global WinDbgPath 
+	global radamsaPath
+	global TestDir
 	global reportEvery 
 	global cpu_usage_sample
 	global max_time 
 	global MutationRate 
 	global target
+	global radamsa
 	global jitDebugging 
 	global useGflags 
 	global kill_windows
@@ -385,7 +432,7 @@ def main(args):
 		PrintUsage()
 		exit()
 	
-	optlist, argv = getopt.getopt(args[1:], 'b:o:w:r:m:s:c:jgkvh')
+	optlist, argv = getopt.getopt(args[1:], 'b:o:w:p:t:i:m:s:c:rjgkvh')
 	for opt in optlist:
 		if opt[0] == '-b':
 			baseDir = opt[1]
@@ -393,7 +440,11 @@ def main(args):
 			outputDir = opt[1]
 		elif opt[0] == '-w':
 			WinDbgPath = opt[1]
-		elif opt[0] == '-r':
+		elif opt[0] == '-p':
+			radamsaPath = opt[1]
+		elif opt[0] == '-t':
+			TestDir = opt[1]
+		elif opt[0] == '-i':
 			reportEvery = int(opt[1])
 		elif opt[0] == '-m':
 			max_time = int(opt[1])
@@ -401,6 +452,8 @@ def main(args):
 			MutationRate = float(opt[1])
 		elif opt[0] == '-c':
 			cpu_usage_sample = float(opt[1])
+		elif opt[0] == '-r':
+			radamsa = True
 		elif opt[0] == '-j':
 			jitDebugging = True
 		elif opt[0] == '-g':
