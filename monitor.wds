@@ -1,32 +1,6 @@
 * monitor.wds - run this script upon launching an executable, 
-*      when a crash occurs a file named "crashDetector.txt" 
-*      is written to the local directory.  There should be 
-*      no contents in this file, the presence only indicates
-*      that a crash was found.
+*      when a crash occurs a file named "crash_details.txt" 
+*      is written with the output of !exploitable
 
 sxr
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h av
-sxi asrt
-sxi aph
-sxi bpe
-sxi eh
-sxi clr 
-sxi clrn
-sxi cce
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h dm
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h gp
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h ii
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h ip
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h dz
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h iov
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h ch
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h isc
-sxi 3c
-sxi svh
-sxi sse
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h sbo
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h sov
-sxi vs
-sxd -c ".logopen crashDetector.txt; .logclose; q" -h wkd
-sxi wob
-sxi wos
+sxd -c "!load msec.dll; .logopen crash_details.txt; .echo ********************************************************************************; !exploitable; .echo ********************************************************************************; r; .echo ********************************************************************************; u; .echo ********************************************************************************; k; .echo ********************************************************************************; q" -h av
