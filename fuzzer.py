@@ -72,6 +72,11 @@ options:
 	directory and one to test.  This avoids any changes to the test file 
 	during testing that may be caused by auto save and sanitize features 
 	in the target program.  This file is always deleted after every test.
+	Default: "Tests"
+-a [arguments]
+	string representing additional arguements to be passed to the target
+	application during each test.
+	Default: ""
 -i [report interval]
 	number of test cases to report progress, progress only reported if -v 
 	is also specified
@@ -99,6 +104,11 @@ options:
 	dialog boxes spawned by the program.  This window_killer is spawned
 	for each instance of the target application that is spawned and only 
 	deals with windows belonging to the target's PID
+-e
+	Uses the window_killer to attempt to close the main window of the target
+	application before killing the process.  This is used to trigger any 
+	events that might occur upon closing the application normally for process
+	cleanup
 -v
 	Verbose Mode, includes progress updates and error messages
 -h 	
@@ -115,6 +125,7 @@ baseDir = "BaseFiles"
 outputDir = "Crashes"
 WinDbgPath = "WinDbg"
 TestDir = "Tests"
+target_args = ""
 crashTxt = "crashDetector.txt"
 radamsaPath = "radamsa-0.3.exe"
 reportEvery = 1000
@@ -126,6 +137,7 @@ radamsa = False
 jitDebugging = False
 useGflags = True
 kill_windows = False
+close_main = False
 verbose = False
 ####################################################################################
 # Functions:
@@ -218,17 +230,19 @@ def InitBaseFiles(dir=None):
 def RunTest(file):
 	global verbose
 	global outputDir
+	global target_args
 	global jitDebugging
 	global target
 	global max_time
 	global kill_windows
+	global close_main
 	global cpu_usage_sample
 	
 	proc = None
 	debugger = None
 	windowKiller = None
 	
-	if kill_windows:
+	if kill_windows or close_main:
 		import window_killer
 	
 	try:
@@ -247,7 +261,7 @@ def RunTest(file):
 		
 		if jitDebugging:
 			try:
-				proc = psutil.Process(subprocess.Popen("\"" + target + "\" \"" + file + "\"").pid)
+				proc = psutil.Process(subprocess.Popen("\"" + target + "\" " + target_args + " \"" + file + "\"").pid)
 				
 				if kill_windows:
 					windowKiller = window_killer.MultithreadedWindowKiller(proc.pid)
@@ -260,7 +274,10 @@ def RunTest(file):
 				
 				if not CheckWinDbg():
 					try:
-						proc.kill()
+						if close_main: 
+							window_killer.CloseMain(proc.pid)
+						else:
+							proc.kill()
 					except:
 						pass
 					time.sleep(1)
@@ -290,7 +307,7 @@ def RunTest(file):
 				except:
 					pass
 		else:
-			debugger = proc = psutil.Process(subprocess.Popen(WinDbgPath + os.sep + "windbg.exe -Q -c \"$$<" + WinDbgPath + os.sep + "monitor.wds; g;\" -o \"" + target + "\" \"" + file + "\"").pid)
+			debugger = proc = psutil.Process(subprocess.Popen(WinDbgPath + os.sep + "windbg.exe -Q -c \"$$<" + WinDbgPath + os.sep + "monitor.wds; g;\" -o \"" + target + "\" " + target_args + " \"" + file + "\"").pid)
 			time.sleep(1)
 			timeout = 0
 			while timeout < 3:
@@ -313,7 +330,10 @@ def RunTest(file):
 					time.sleep(1)
 					timeout += 1 + cpu_usage_sample
 				if proc != None and proc.status != psutil.STATUS_DEAD:
-					proc.kill()
+					if close_main:
+						window_killer.CloseMain(proc.pid)
+					else:
+						proc.kill()
 				if debugger != None and debugger.status != psutil.STATUS_DEAD:
 					debugger.kill()
 			except KeyboardInterrupt:
@@ -417,6 +437,7 @@ def main(args):
 	global WinDbgPath 
 	global radamsaPath
 	global TestDir
+	global target_args
 	global reportEvery 
 	global cpu_usage_sample
 	global max_time 
@@ -426,13 +447,14 @@ def main(args):
 	global jitDebugging 
 	global useGflags 
 	global kill_windows
+	global close_main
 	global verbose 
 	
 	if len(args) < 2:
 		PrintUsage()
 		exit()
 	
-	optlist, argv = getopt.getopt(args[1:], 'b:o:w:p:t:i:m:s:c:rjgkvh')
+	optlist, argv = getopt.getopt(args[1:], 'b:o:w:p:t:a:i:m:s:c:rjgkevh')
 	for opt in optlist:
 		if opt[0] == '-b':
 			baseDir = opt[1]
@@ -444,6 +466,8 @@ def main(args):
 			radamsaPath = opt[1]
 		elif opt[0] == '-t':
 			TestDir = opt[1]
+		elif opt[0] == '-a':
+			target_args = opt[1]
 		elif opt[0] == '-i':
 			reportEvery = int(opt[1])
 		elif opt[0] == '-m':
@@ -460,6 +484,8 @@ def main(args):
 			useGflags = False
 		elif opt[0] == '-k':
 			kill_windows = True
+		elif opt[0] == '-e':
+			close_main = True
 		elif opt[0] == '-v':
 			verbose = True
 		elif opt[0] == '-h':
