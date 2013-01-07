@@ -21,10 +21,21 @@
 *      to determine exploitability.
 
 sxr
-sxe -c "gN;" -c2 "!load msec.dll; .logopen crash_details.txt; .echo ********************************************************************************; !exploitable; .echo ********************************************************************************; r; .echo ********************************************************************************; u; .echo ********************************************************************************; k; q;" -h gp
-sxe -c "gN;" -c2 "!load msec.dll; .logopen crash_details.txt; .echo ********************************************************************************; !exploitable; .echo ********************************************************************************; r; .echo ********************************************************************************; u; .echo ********************************************************************************; k; q;" -h ii
-sxe -c "gN;" -c2 "!load msec.dll; .logopen crash_details.txt; .echo ********************************************************************************; !exploitable; .echo ********************************************************************************; r; .echo ********************************************************************************; u; .echo ********************************************************************************; k; q;" -h av
+ad *
 
+.block
+{
+	aS ${/v:break} ".echo ********************************************************************************;"
+	aS ${/v:logfile} "crash_details.txt"
+
+	.block
+	{
+		sxe -c "gN;" -c2 "!load msec.dll; .logopen ${logfile}; ${break}; !exploitable; ${break}; .lastevent; ${break}; r; ${break}; u; ${break}; k; q;" -h av
+	}
+}
+
+sxi gp
+sxi ii
 sxi asrt
 sxi aph
 sxi bpe
@@ -229,6 +240,9 @@ def InitBaseFiles(dir=None):
 	baseFiles = []
 	for file in os.listdir(baseDir):
 		baseFiles += [baseDir + os.sep + file]
+		
+	random.shuffle(baseFiles)
+	
 	if verbose:
 		print "Base Files Initialized:"
 		for file in baseFiles:
@@ -444,33 +458,38 @@ def RunFuzzer():
 			count += 1
 			
 			# Process zipped files
-			if fuzz_zipped and zipfile.is_zipfile(file):
-				archive = zipfile.ZipFile(file, "r")
-				for subfile in archive.namelist():
-					testFile = GenerateTestFileName(file)
-					if verbose and ((reportEvery > 1 and count % reportEvery == 1) or (reportEvery == 1 and count % reportEvery == 0)):
-						print "Working on file #" + str(count)
-					tempFile = TestDir + os.sep + "temp.tmp"
-					if radamsa:
-						open(tempFile, "wb").write(archive.read(subfile))
-						tempFileOut = tempFile[:tempFile.rfind('.')] + "2" + tempFile[tempFile.rfind('.') + 1:]
-						subprocess.call(radamsaPath + " -o " + tempFileOut + " " + tempFile)
-						shutil.move(tempFileOut, tempFile)
-					else:
-						open(tempFile, "wb").write(mutate(archive.read(subfile)))
-					
-					test = zipfile.ZipFile(testFile, "w")
-					for item in archive.namelist():
-						if item != subfile:
-							buffer = archive.read(item)
-							test.writestr(item, buffer)
+			try:
+				if fuzz_zipped and zipfile.is_zipfile(file):
+					archive = zipfile.ZipFile(file, "r")
+					for subfile in archive.namelist():
+						testFile = GenerateTestFileName(file)
+						if verbose and ((reportEvery > 1 and count % reportEvery == 1) or (reportEvery == 1 and count % reportEvery == 0)):
+							print "Working on file #" + str(count)
+						tempFile = TestDir + os.sep + "temp.tmp"
+						if radamsa:
+							open(tempFile, "wb").write(archive.read(subfile))
+							tempFileOut = tempFile[:tempFile.rfind('.')] + "2" + tempFile[tempFile.rfind('.') + 1:]
+							subprocess.call(radamsaPath + " -o " + tempFileOut + " " + tempFile)
+							shutil.move(tempFileOut, tempFile)
 						else:
-							test.write(tempFile, subfile, zipfile.ZIP_DEFLATED)
-					test.close()
-					os.remove(tempFile)
-					RunTest(testFile)
-					count += 1
-				archive.close()	
+							open(tempFile, "wb").write(mutate(archive.read(subfile)))
+						
+						test = zipfile.ZipFile(testFile, "w")
+						for item in archive.namelist():
+							if item != subfile:
+								buffer = archive.read(item)
+								test.writestr(item, buffer)
+							else:
+								test.write(tempFile, subfile, zipfile.ZIP_DEFLATED)
+						test.close()
+						os.remove(tempFile)
+						RunTest(testFile)
+						count += 1
+					archive.close()
+			except KeyboardInterrupt:
+				raise KeyboardInterrupt()
+			except:
+				pass # Error unzipping file
 	except KeyboardInterrupt:
 		if useGflags:
 			DisableGFlags()
